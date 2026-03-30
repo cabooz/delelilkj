@@ -1,0 +1,6 @@
+module HevControl
+HevControlPanel 1.0 HevControlPanel.qml
+ClockTab 1.0 ClockTab.qml
+DisplayTab 1.0 DisplayTab.qml
+CommsTab 1.0 CommsTab.qml
+SystemTab 1.0 SystemTab.qml
