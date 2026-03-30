@@ -3,7 +3,9 @@ import QtQuick
 
 QtObject {
     // ═══════════════════════════════════════════════════════════════
-    //  VOID TERMINAL THEME — deep blue-black · phosphor teal
+    //  VOID TERMINAL THEME — derin mavi-siyah · fosfor teal
+    //  Hyprland kenarlık renkleri için: ~/.config/hypr/colors.conf
+    //  QML panel renkleri burada tanımlı; tutarlı kalmaya dikkat et.
     // ═══════════════════════════════════════════════════════════════
 
     // ▓▓▓ CORE PALETTE - Void / Deep Space ▓▓▓
