@@ -3,7 +3,8 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
-import "components"
+import "components/overview"
+import "components/control_centre"
 import "."
 
 ShellRoot {
@@ -11,15 +12,7 @@ ShellRoot {
     
     // --- STATE YÖNETİMİ ---
     property int activeVdesk: 1
-    property var populatedVdesks: ({})
-    property var windowList: [] // Sağ tık menüsü için
     
-    // Popup State
-    property int contextVdesk: 0
-    property bool popupVisible: false
-    property var popupScreen: null
-    property real popupX: 0
-    property real popupY: 0
     // Overview State
     property bool overviewVisible: false
     property var allWindows: []
@@ -98,7 +91,6 @@ ShellRoot {
                 if (num >= 1 && num <= 9) root.activeVdesk = num
             }
         }
-        onRunningChanged: { if (!running) stateProcess.running = true }
     }
     
     // [FIX] Buffer Yönetimi İyileştirilmiş Window Fetcher
@@ -157,74 +149,8 @@ ShellRoot {
         moveToVdeskProcess.running = true
     }
     
-    // Hangi vdesklerde pencere var?
-    Process {
-        id: stateProcess
-        command: ["sh", "-c", "hyprctl printstate | grep -B2 'Populated: true' | grep -oP '^- \\K\\d+' | tr '\\n' ','"]
-        running: false
-        stdout: SplitParser {
-            onRead: data => {
-                let newPopulated = {}
-                let nums = data.trim().split(',')
-                for (let n of nums) {
-                    let num = parseInt(n)
-                    if (num >= 1 && num <= 9) newPopulated[num] = true
-                }
-                root.populatedVdesks = newPopulated
-            }
-        }
-    }
+    function isPopulated(vdeskNum) { return (windowsByVdesk[vdeskNum] || []).length > 0 }
     
-    // showWindowMenu için allWindows'dan filtreleyerek liste oluştur (process spawn yok)
-    function getWindowsForVdesk(vdeskNum) {
-        return root.allWindows.filter(w => w.vdesk === vdeskNum).map(w => ({
-            address: w.address,
-            title: w.title,
-            class: w.class
-        }))
-    }
-    
-    function bringWindowHere(address) {
-        Hyprland.dispatch("movetoworkspace current,address:" + address)
-        Hyprland.dispatch("focuswindow address:" + address)
-        root.popupVisible = false
-    }
-    
-    function isPopulated(vdeskNum) { return populatedVdesks[vdeskNum] === true }
-    
-    function showWindowMenu(vdeskNum, globalX, globalY, screen) {
-        if (!isPopulated(vdeskNum)) return
-        root.contextVdesk = vdeskNum
-        root.popupX = globalX
-        root.popupY = globalY
-        root.popupScreen = screen
-        root.windowList = getWindowsForVdesk(vdeskNum)
-        root.popupVisible = true
-    }
-    
-    // ==========================================================
-    // UI: TOP BAR - Modular Component
-    // ==========================================================
-    TopBar {
-        activeVdesk: root.activeVdesk
-        populatedVdesks: root.populatedVdesks
-        
-        onVdeskClicked: (vdeskNum) => Hyprland.dispatch("vdesk " + vdeskNum)
-        onVdeskRightClicked: (vdeskNum, globalX, globalY, screen) => root.showWindowMenu(vdeskNum, globalX, globalY, screen)
-    }
-    
-    // ==========================================================
-    // UI: SAĞ TIK MENÜSÜ (POPUP) - Modular Component
-    // ==========================================================
-    WindowPopup {
-        visible: root.popupVisible
-        contextVdesk: root.contextVdesk
-        windowList: root.windowList
-        popupScreen: root.popupScreen
-        
-        onWindowClicked: (address) => root.bringWindowHere(address)
-        onDismissed: root.popupVisible = false
-    }
     
     // ==========================================================
     // UI: OVERVIEW (3x3 GRID) - Modular Component
@@ -253,7 +179,5 @@ ShellRoot {
         }
     }
 
-	LabJournal {}
-	HevControl {}
-	HevHud {}
+    HevControl {}
 }
