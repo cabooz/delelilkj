@@ -19,9 +19,13 @@ hyprctl clients -j | jq --argjson nm "$NUM_MONITORS" '[
     | .vdesk = (((.workspace.id - 1) / $nm | floor) + 1)
     | select(.vdesk >= 1 and .vdesk <= 9)
     | {
-        vdesk: .vdesk,
+        vdesk:   .vdesk,
         address: .address,
-        title: .title,
-        class: .class
+        title:   .title,
+        class:   .class,
+        x:       .at[0],
+        y:       .at[1],
+        width:   .size[0],
+        height:  .size[1]
     }
 ]'
