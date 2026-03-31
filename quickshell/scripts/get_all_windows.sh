@@ -2,22 +2,16 @@
 #═══════════════════════════════════════════════════════════════════════════════
 # GET ALL WINDOWS - virtual-desktops plugin compatible
 #═══════════════════════════════════════════════════════════════════════════════
-# Formula: VDESK = ceil(WS_ID / NUM_MONITORS)
-# 2 monitors: WS 1,2 → VDESK 1 | WS 3,4 → VDESK 2 | ... | WS 17,18 → VDESK 9
-# 1 monitor:  WS 1 → VDESK 1 | WS 2 → VDESK 2 | ... | WS 9 → VDESK 9
+# Map windows to vdesks via workspace name (Grid-1 … Grid-9).
+# Works correctly on multi-monitor setups: all monitors on the same virtual
+# desk share the same "Grid-N" workspace name, so every window is captured
+# regardless of which monitor it lives on.
 #═══════════════════════════════════════════════════════════════════════════════
 
-# Get monitor count
-NUM_MONITORS=$(hyprctl monitors -j | jq 'length')
-
-# Fallback to 1 if no monitors detected
-[[ "$NUM_MONITORS" -lt 1 ]] && NUM_MONITORS=1
-
-hyprctl clients -j | jq --argjson nm "$NUM_MONITORS" '[
+hyprctl clients -j | jq '[
     .[]
-    | select(.workspace.id >= 1)
-    | .vdesk = (((.workspace.id - 1) / $nm | floor) + 1)
-    | select(.vdesk >= 1 and .vdesk <= 9)
+    | select(.workspace.name | test("^Grid-[1-9]$"))
+    | .vdesk = (.workspace.name | ltrimstr("Grid-") | tonumber)
     | {
         vdesk:   .vdesk,
         address: .address,
