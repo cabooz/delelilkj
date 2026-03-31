@@ -42,9 +42,8 @@ PanelWindow {
 
     // ── Panel setup ───────────────────────────────────────────────────────────
     anchors { left: true; right: true; top: true; bottom: true }
-    layer: WlrLayer.Overlay
     exclusionMode: ExclusionMode.Ignore
-    keyboardFocus: WlrKeyboardFocus.OnDemand
+    focusable: true
     color: "transparent"
 
     // ── Layout constants ──────────────────────────────────────────────────────
