@@ -15,7 +15,7 @@ Item {
     id: root
 
     // Emitted once the current desk ID is known
-    signal currentDeskResult(int id)
+    signal currentDeskResult(id: int)
 
     // ── switchToDesk(id) ─────────────────────────────────────────────────────
     function switchToDesk(id) {

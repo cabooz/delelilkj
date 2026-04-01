@@ -56,6 +56,8 @@ PanelWindow {
     // Minimum thumbnail dimensions (overview-cell pixels)
     readonly property int _minThumbW: 20
     readonly property int _minThumbH: 14
+    // Drag threshold before a press becomes a drag (pixels)
+    readonly property int _dragThreshold: 6
 
     // ── Drag state ────────────────────────────────────────────────────────────
     property string  _dragAddr: ""
@@ -66,6 +68,8 @@ PanelWindow {
     property real    _ghostY: 0
     property real    _ghostW: 80
     property real    _ghostH: 50
+    property real    _pressX: 0           // press position (root coords) for threshold
+    property real    _pressY: 0
 
     // ── Keyboard focus index ──────────────────────────────────────────────────
     property int _focusedDesk: root.activeVdesk   // 1-9
@@ -168,6 +172,31 @@ PanelWindow {
         return nr * 3 + nc + 1
     }
 
+    // Return the deskId (1-9) for a point in root coordinates, or 0 if none
+    function _deskAtPoint(px, py) {
+        var col = Math.floor((px - _gap) / (_cellW + _gap))
+        var row = Math.floor((py - _gap) / (_cellH + _gap))
+        if (col < 0 || col > 2 || row < 0 || row > 2) return 0
+        var cellLeft = _gap + col * (_cellW + _gap)
+        var cellTop  = _gap + row * (_cellH + _gap)
+        if (px < cellLeft || px > cellLeft + _cellW) return 0
+        if (py < cellTop  || py > cellTop  + _cellH) return 0
+        return row * 3 + col + 1
+    }
+
+    // Convert ghost-item center to real pixel coords inside a desk cell.
+    // Returns {x, y} suitable for hyprctl movewindowpixel.
+    function _ghostCenterToPixelCoords(ghostX, ghostY, ghostW, ghostH, deskId) {
+        var col      = (deskId - 1) % 3
+        var row      = Math.floor((deskId - 1) / 3)
+        var cellLeft = _gap + col * (_cellW + _gap)
+        var cellTop  = _gap + row * (_cellH + _gap)
+        var relX     = ghostX + ghostW / 2 - cellLeft
+        var relY     = ghostY + ghostH / 2 - cellTop - _headerH
+        return { x: Math.max(0, Math.round(relX / _scale)),
+                 y: Math.max(0, Math.round(relY / _scale)) }
+    }
+
     // ── Background + grid ─────────────────────────────────────────────────────
     Rectangle {
         id: backdrop
@@ -248,34 +277,6 @@ PanelWindow {
                         }
                     }
 
-                    // ── Drop area for cross-vdesk window drag ─────────────────
-                    DropArea {
-                        anchors.fill: parent
-                        keys: ["windowDrag"]
-                        onEntered: root._dragDstVdesk = cellItem.deskId
-                        onExited:  if (root._dragDstVdesk === cellItem.deskId)
-                                       root._dragDstVdesk = 0
-                        onDropped: drop => {
-                            let srcVdesk = parseInt(drop.getDataAsString("sourceVdesk"))
-                            let addr     = drop.getDataAsString("address")
-                            if (srcVdesk !== cellItem.deskId && addr !== "") {
-                                root.windowMoveRequested(addr, cellItem.deskId)
-                            } else if (srcVdesk === cellItem.deskId && addr !== "") {
-                                // Same-workspace fine-position move
-                                let relX = drop.x
-                                let relY = drop.y - root._headerH
-                                let realX = Math.round(relX / root._scale)
-                                let realY = Math.round(relY / root._scale)
-                                _movePixelProc.addr = addr
-                                _movePixelProc.px = realX
-                                _movePixelProc.py = realY
-                                _movePixelProc.running = true
-                            }
-                            root._dragging = false
-                            root._dragDstVdesk = 0
-                        }
-                    }
-
                     // ── Window thumbnails (clipped to cell body) ──────────────
                     Item {
                         id: thumbArea
@@ -315,25 +316,7 @@ PanelWindow {
                                         ? Math.max(win.height * root._scale, root._minThumbH)
                                         : (thumbArea.height * 0.7)
                                 z: isSelected ? 10 : 1
-
-                                // ── Drag support (Drag attached property) ─────
-                                Drag.active:  thumbMouseArea.drag.active
-                                Drag.keys:    ["windowDrag"]
-                                Drag.mimeData: ({
-                                    "address":     win.address,
-                                    "sourceVdesk": cellItem.deskId.toString()
-                                })
-                                Drag.hotSpot.x: width  / 2
-                                Drag.hotSpot.y: height / 2
-                                Drag.dragType: Drag.Automatic
-
-                                states: State {
-                                    when: thumb.Drag.active
-                                    PropertyChanges {
-                                        target: thumb
-                                        opacity: 0.4
-                                    }
-                                }
+                                opacity: (root._dragging && root._dragAddr === win.address) ? 0.4 : 1.0
 
                                 // Window colored rectangle
                                 Rectangle {
@@ -405,11 +388,10 @@ PanelWindow {
                                     id: thumbMouseArea
                                     anchors.fill: parent
                                     z: 10
-                                    // Leave resize handle accessible
-                                    drag.target: thumb
-                                    drag.threshold: 6
+                                    property bool _moved: false
 
                                     onClicked: {
+                                        if (_moved) { _moved = false; return }
                                         if (thumb.isSelected) {
                                             root.windowDeselected()
                                         } else {
@@ -420,13 +402,56 @@ PanelWindow {
                                         root.windowFocused(win.address, cellItem.deskId)
                                         root.toggleRequested()
                                     }
-                                    onPressed: {
+                                    onPressed: mouse => {
+                                        _moved             = false
                                         root._dragAddr     = win.address
                                         root._dragSrcVdesk = cellItem.deskId
+                                        root._ghostW       = thumb.width
+                                        root._ghostH       = thumb.height
+                                        root._dragging     = false
+                                        var gp = thumbMouseArea.mapToItem(root, mouse.x, mouse.y)
+                                        root._pressX = gp.x
+                                        root._pressY = gp.y
                                     }
-                                    onReleased: {
-                                        // Drag.Automatic handles drop delivery automatically
-                                        root._dragging = false
+                                    onPositionChanged: mouse => {
+                                        var gp = thumbMouseArea.mapToItem(root, mouse.x, mouse.y)
+                                        if (!root._dragging) {
+                                            var dx = gp.x - root._pressX
+                                            var dy = gp.y - root._pressY
+                                            if (Math.abs(dx) > root._dragThreshold || Math.abs(dy) > root._dragThreshold)
+                                                root._dragging = true
+                                        }
+                                        if (root._dragging) {
+                                            _moved             = true
+                                            root._ghostX       = gp.x - root._ghostW / 2
+                                            root._ghostY       = gp.y - root._ghostH / 2
+                                            root._dragDstVdesk = root._deskAtPoint(gp.x, gp.y)
+                                        }
+                                    }
+                                    onReleased: mouse => {
+                                        if (root._dragging) {
+                                            _moved = true
+                                            var dst  = root._dragDstVdesk
+                                            var addr = root._dragAddr
+                                            var src  = root._dragSrcVdesk
+                                            if (dst >= 1 && dst <= 9 && addr !== "") {
+                                                if (dst !== src) {
+                                                    root.windowMoveRequested(addr, dst)
+                                                } else {
+                                                    // Same-desk fine pixel position
+                                                    var pos = root._ghostCenterToPixelCoords(
+                                                        root._ghostX, root._ghostY,
+                                                        root._ghostW, root._ghostH, dst)
+                                                    _movePixelProc.addr    = addr
+                                                    _movePixelProc.px      = pos.x
+                                                    _movePixelProc.py      = pos.y
+                                                    _movePixelProc.running = true
+                                                }
+                                            }
+                                        }
+                                        root._dragging     = false
+                                        root._dragAddr     = ""
+                                        root._dragDstVdesk = 0
                                     }
                                 }
                             }
@@ -434,6 +459,21 @@ PanelWindow {
                     }
                 }
             }
+        }
+
+        // ── Ghost window preview during manual drag ───────────────────────────
+        Rectangle {
+            visible: root._dragging
+            x: root._ghostX
+            y: root._ghostY
+            width:  root._ghostW
+            height: root._ghostH
+            radius: Theme.radiusSmall
+            color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45)
+            border.width: 2
+            border.color: Theme.accent
+            z: 100
+            enabled: false
         }
     }
 }
